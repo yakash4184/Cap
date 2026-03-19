@@ -1,9 +1,21 @@
-import { Navigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { Loader2 } from 'lucide-react';
+import type { ReactNode } from "react";
+import { Loader2 } from "lucide-react";
+import { Navigate, useLocation } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { getDashboardRoute } from "@/lib/admin-auth";
+import type { AdminRole } from "@/types/admin";
 
-export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+interface ProtectedRouteProps {
+  children: ReactNode;
+  allowedRoles?: AdminRole[];
+}
+
+export default function ProtectedRoute({
+  children,
+  allowedRoles,
+}: ProtectedRouteProps) {
+  const { currentAdmin, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -13,7 +25,19 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     );
   }
 
-  if (!user) return <Navigate to="/login" replace />;
+  if (!currentAdmin) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: `${location.pathname}${location.search}${location.hash}` }}
+      />
+    );
+  }
+
+  if (allowedRoles && !allowedRoles.includes(currentAdmin.role)) {
+    return <Navigate to={getDashboardRoute(currentAdmin.role)} replace />;
+  }
 
   return <>{children}</>;
 }
