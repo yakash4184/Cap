@@ -8,165 +8,143 @@ import {
   type ReactNode,
 } from "react";
 import {
-  AdminAuthError,
-  LOCATIONS,
+  CivicAuthError,
   authenticateAdmin,
-  clearAdminSession,
-  createLocationAdminRecord,
-  loadAdminRecords,
-  loadAdminSession,
-  saveAdminRecords,
-  saveAdminSession,
-  usernameExists,
-} from "@/lib/admin-auth";
+  authenticateCitizen,
+  clearSession,
+  loadSession,
+  loadUsers,
+  registerCitizen,
+  saveSession,
+  saveUsers,
+} from "@/lib/civic-data";
 import type {
-  AdminFormValues,
-  AdminLocation,
-  AdminRecord,
-  AdminSession,
-  LoginCredentials,
-} from "@/types/admin";
+  AdminLoginInput,
+  AppRole,
+  AppSession,
+  AppUser,
+  CitizenLoginInput,
+  CitizenRegistrationInput,
+} from "@/types/civic";
 
 interface AuthContextType {
-  admins: AdminRecord[];
-  currentAdmin: AdminSession | null;
-  locations: readonly AdminLocation[];
+  users: AppUser[];
+  currentUser: AppSession | null;
   loading: boolean;
-  login: (credentials: LoginCredentials) => Promise<void>;
+  loginCitizen: (input: CitizenLoginInput) => Promise<void>;
+  loginAdmin: (input: AdminLoginInput) => Promise<void>;
+  registerCitizen: (input: CitizenRegistrationInput) => Promise<void>;
   logout: () => void;
-  addLocationAdmin: (values: AdminFormValues) => void;
-  updateLocationAdmin: (adminId: string, values: AdminFormValues) => void;
-  deleteLocationAdmin: (adminId: string) => void;
+  hasRole: (roles: AppRole[]) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [admins, setAdmins] = useState<AdminRecord[]>([]);
-  const [currentAdmin, setCurrentAdmin] = useState<AdminSession | null>(null);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [currentUser, setCurrentUser] = useState<AppSession | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const seededAdmins = loadAdminRecords();
-    const storedSession = loadAdminSession();
-    setAdmins(seededAdmins);
-    setCurrentAdmin(storedSession);
+    setUsers(loadUsers());
+    setCurrentUser(loadSession());
     setLoading(false);
   }, []);
 
-  const syncAdmins = useCallback((nextAdmins: AdminRecord[]) => {
-    setAdmins(nextAdmins);
-    saveAdminRecords(nextAdmins);
+  useEffect(() => {
+    function syncFromStorage(event: StorageEvent) {
+      if (!event.key) {
+        return;
+      }
+
+      if (event.key === "civic-pulse.users") {
+        setUsers(loadUsers());
+      }
+
+      if (event.key === "civic-pulse.session") {
+        setCurrentUser(loadSession());
+      }
+    }
+
+    window.addEventListener("storage", syncFromStorage);
+    return () => window.removeEventListener("storage", syncFromStorage);
   }, []);
 
-  const assertUniqueUsername = useCallback(
-    (username: string, excludedId?: string) => {
-      if (usernameExists(admins, username, excludedId)) {
-        throw new AdminAuthError(
-          "DUPLICATE_USERNAME",
-          "Username already exists for another admin.",
-        );
-      }
+  const syncUsers = useCallback((nextUsers: AppUser[]) => {
+    setUsers(nextUsers);
+    saveUsers(nextUsers);
+  }, []);
+
+  const loginCitizenHandler = useCallback(
+    async (input: CitizenLoginInput) => {
+      const session = authenticateCitizen(users, input);
+      setCurrentUser(session);
+      saveSession(session);
     },
-    [admins],
+    [users],
   );
 
-  const login = useCallback(
-    async (credentials: LoginCredentials) => {
-      const session = authenticateAdmin(admins, credentials);
-      setCurrentAdmin(session);
-      saveAdminSession(session);
+  const loginAdminHandler = useCallback(
+    async (input: AdminLoginInput) => {
+      const session = authenticateAdmin(users, input);
+      setCurrentUser(session);
+      saveSession(session);
     },
-    [admins],
+    [users],
+  );
+
+  const registerCitizenHandler = useCallback(
+    async (input: CitizenRegistrationInput) => {
+      const user = registerCitizen(users, input);
+      const nextUsers = [...users, user];
+      syncUsers(nextUsers);
+
+      const session: AppSession = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        location: user.location,
+      };
+
+      setCurrentUser(session);
+      saveSession(session);
+    },
+    [syncUsers, users],
   );
 
   const logout = useCallback(() => {
-    setCurrentAdmin(null);
-    clearAdminSession();
+    setCurrentUser(null);
+    clearSession();
   }, []);
 
-  const addLocationAdmin = useCallback(
-    (values: AdminFormValues) => {
-      assertUniqueUsername(values.username);
-      const nextAdmins = [...admins, createLocationAdminRecord(values)];
-      syncAdmins(nextAdmins);
+  const hasRole = useCallback(
+    (roles: AppRole[]) => {
+      return currentUser ? roles.includes(currentUser.role) : false;
     },
-    [admins, assertUniqueUsername, syncAdmins],
-  );
-
-  const updateLocationAdmin = useCallback(
-    (adminId: string, values: AdminFormValues) => {
-      const targetAdmin = admins.find((admin) => admin.id === adminId);
-      if (!targetAdmin) {
-        throw new AdminAuthError("NOT_FOUND", "Selected admin record was not found.");
-      }
-
-      if (targetAdmin.role === "SUPER_ADMIN") {
-        throw new AdminAuthError(
-          "PROTECTED_ADMIN",
-          "Super Admin account cannot be edited from this panel.",
-        );
-      }
-
-      assertUniqueUsername(values.username, adminId);
-
-      const nextAdmins = admins.map((admin) =>
-        admin.id === adminId
-          ? {
-              ...admin,
-              username: values.username.trim(),
-              password: values.password,
-              location: values.location,
-              updatedAt: new Date().toISOString(),
-            }
-          : admin,
-      );
-
-      syncAdmins(nextAdmins);
-    },
-    [admins, assertUniqueUsername, syncAdmins],
-  );
-
-  const deleteLocationAdmin = useCallback(
-    (adminId: string) => {
-      const targetAdmin = admins.find((admin) => admin.id === adminId);
-      if (!targetAdmin) {
-        throw new AdminAuthError("NOT_FOUND", "Selected admin record was not found.");
-      }
-
-      if (targetAdmin.role === "SUPER_ADMIN") {
-        throw new AdminAuthError(
-          "PROTECTED_ADMIN",
-          "Super Admin account cannot be deleted.",
-        );
-      }
-
-      syncAdmins(admins.filter((admin) => admin.id !== adminId));
-    },
-    [admins, syncAdmins],
+    [currentUser],
   );
 
   const value = useMemo<AuthContextType>(
     () => ({
-      admins,
-      currentAdmin,
-      locations: LOCATIONS,
+      users,
+      currentUser,
       loading,
-      login,
+      loginCitizen: loginCitizenHandler,
+      loginAdmin: loginAdminHandler,
+      registerCitizen: registerCitizenHandler,
       logout,
-      addLocationAdmin,
-      updateLocationAdmin,
-      deleteLocationAdmin,
+      hasRole,
     }),
     [
-      admins,
-      currentAdmin,
+      currentUser,
+      hasRole,
       loading,
-      login,
+      loginAdminHandler,
+      loginCitizenHandler,
       logout,
-      addLocationAdmin,
-      updateLocationAdmin,
-      deleteLocationAdmin,
+      registerCitizenHandler,
+      users,
     ],
   );
 
@@ -177,8 +155,10 @@ export function useAuth() {
   const context = useContext(AuthContext);
 
   if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    throw new Error("useAuth must be used inside AuthProvider.");
   }
 
   return context;
 }
+
+export { CivicAuthError };

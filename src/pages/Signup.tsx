@@ -1,90 +1,96 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card } from '@/components/ui/card';
-import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { useAuth } from '@/contexts/AuthContext';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ShieldCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAuth, CivicAuthError } from "@/contexts/AuthContext";
+import { LOCATION_OPTIONS, type LocationName } from "@/types/civic";
 
 export default function Signup() {
-  const [showPassword, setShowPassword] = useState(false);
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { signUp } = useAuth();
+  const { registerCitizen } = useAuth();
   const navigate = useNavigate();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password.length < 6) {
-      toast.error('Password must be at least 6 characters');
-      return;
-    }
-    setLoading(true);
-    try {
-      await signUp(email, password, {
-        display_name: `${firstName} ${lastName}`.trim(),
-        first_name: firstName,
-        last_name: lastName,
-      });
-      toast.success('Account created! Please check your email to confirm.');
-      navigate('/login');
-    } catch (error: any) {
-      toast.error(error.message || 'Signup failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [location, setLocation] = useState<LocationName>("Mirzapur");
+  const [error, setError] = useState("");
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md border border-border p-8 shadow-elevated">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
+      <Card className="w-full max-w-md border-white/70 bg-white/90 p-8 shadow-elevated">
         <div className="mb-6 text-center">
-          <Link to="/" className="mb-4 inline-flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
-              <Shield className="h-5 w-5 text-primary-foreground" />
-            </div>
-          </Link>
-          <h1 className="font-display text-2xl font-bold text-card-foreground">Create an account</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Join CivicPulse and improve your city</p>
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+            <ShieldCheck className="h-7 w-7" />
+          </div>
+          <h1 className="mt-5 text-2xl font-bold">Citizen registration</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Create your account to report civic issues and track resolution updates.
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="firstName">First name</Label>
-              <Input id="firstName" placeholder="John" className="mt-1.5" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
-            </div>
-            <div>
-              <Label htmlFor="lastName">Last name</Label>
-              <Input id="lastName" placeholder="Doe" className="mt-1.5" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
-            </div>
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="name">Full name</Label>
+            <Input id="name" className="mt-2" value={name} onChange={(event) => setName(event.target.value)} />
           </div>
           <div>
             <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" placeholder="you@example.com" className="mt-1.5" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <Input id="email" className="mt-2" value={email} onChange={(event) => setEmail(event.target.value)} />
           </div>
           <div>
             <Label htmlFor="password">Password</Label>
-            <div className="relative mt-1.5">
-              <Input id="password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <Input id="password" type="password" className="mt-2" value={password} onChange={(event) => setPassword(event.target.value)} />
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...</> : 'Create account'}
+          <div>
+            <Label>Default location</Label>
+            <Select value={location} onValueChange={(value) => setLocation(value as LocationName)}>
+              <SelectTrigger className="mt-2">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LOCATION_OPTIONS.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {value}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Button
+            className="w-full"
+            onClick={async () => {
+              setError("");
+              try {
+                await registerCitizen({ name, email, password, location });
+                navigate("/dashboard", { replace: true });
+              } catch (signupError) {
+                setError(
+                  signupError instanceof CivicAuthError
+                    ? signupError.message
+                    : "Citizen registration failed.",
+                );
+              }
+            }}
+          >
+            Create citizen account
           </Button>
-        </form>
+        </div>
+
+        {error ? (
+          <div className="mt-4 rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        ) : null}
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          Already have an account?{' '}
-          <Link to="/login" className="font-medium text-primary hover:underline">Sign in</Link>
+          Already registered?{" "}
+          <Link to="/login" className="font-medium text-primary">
+            Login
+          </Link>
         </p>
       </Card>
     </div>
